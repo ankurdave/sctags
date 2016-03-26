@@ -50,7 +50,13 @@ object SCTags extends Parsing with TagGeneration
     }
 
     if (files.nonEmpty) {
-      val tags = files.map(f => (f.getPath, generateTags(parse(f))))
+      val tags = files.map(f => (f.getPath, try {
+        generateTags(parse(f))
+      } catch {
+        case e: AssertionError =>
+          println("Failed to parse %s: %s".format(f.getPath, e))
+          Seq.empty
+      }))
       val output = outputFile match {
         case "-" => Console.out
         case "tags" if etags =>  new PrintStream("TAGS")

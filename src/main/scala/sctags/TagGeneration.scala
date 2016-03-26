@@ -9,15 +9,15 @@ trait TagGeneration { this: SCTags.type =>
   def generateTags(tree: Tree): Seq[Tag] = {
     class GenTagTraverser extends compiler.Traverser {
       val _tags = new mutable.ListBuffer[Tag]
-      var path = new mutable.Stack[(String,String)]
+      var path = new mutable.Stack[String]
       def tags: Seq[Tag] = _tags.toList
 
       import compiler._
 
-      def addTag(pos: TagPosition, name: Name, fields: Map[String, String]) {
-        if (!name.decode.contains('$') && !name.decode.equals("this")) {
+      def addTag(pos: TagPosition, name: String, fields: Map[String, String]) {
+        if (!name.contains('$') && !name.equals("this")) {
           val fieldsList = "kind" -> fields("kind") :: fields.filterKeys(_ != "kind").toList
-          _tags += Tag(name.decode, pos, fieldsList: _*)
+          _tags += Tag(name, pos, fieldsList: _*)
         }
       }
 
@@ -38,7 +38,7 @@ trait TagGeneration { this: SCTags.type =>
       }
 
       def kind(t: Tree) = t match {
-        case PackageDef(_,_)                => Some("p")
+        case PackageDef(pid,_)                => Some("p")
         case ModuleDef(m,_,_)  if m.isCase  => Some("O")
         case ModuleDef(_,_,_)               => Some("o")
         case ClassDef(m,_,_,_) if m.isCase  => Some("C")
@@ -46,20 +46,16 @@ trait TagGeneration { this: SCTags.type =>
         case ClassDef(m,_,_,_)              => Some("c")
         case ValDef(m,_,_,_) if m.isMutable => Some("v")
         case ValDef(_,_,_,_)                => Some("V")
-        case DefDef(_,_,_,_,_,_)            => Some("m")
+        case DefDef(_,name,_,_,_,_) if name != nme.CONSTRUCTOR => Some("m")
         case TypeDef(_,_,_,_)               => Some("T")
         case _ => None
       }
 
-      def scope(t: Tree) = t match {
-        case PackageDef(_,_)                => Some("package")
-        case ModuleDef(m,_,_)  if m.isCase  => Some("case_object")
-        case ModuleDef(_,_,_)               => Some("object")
-        case ClassDef(m,_,_,_) if m.isCase  => Some("case_class")
-        case ClassDef(m,_,_,_) if m.isTrait => Some("trait")
-        case ClassDef(m,_,_,_)              => Some("class")
-        case DefDef(_,_,_,_,_,_)            => Some("method")
-        case _ => None
+      def recurse(t: Tree) = t match {
+        case DefDef(_,_,_,_,_,_) => false
+        case TypeDef(_,_,_,_) => false
+        case ValDef(_,_,_,_)  => false
+        case _ => true
       }
 
       def signature(t: Tree) = t match {
@@ -94,34 +90,22 @@ trait TagGeneration { this: SCTags.type =>
         implementation(t).foreach(fields += "implementation" -> _)
         signature(t).foreach(fields += "signature" -> _)
         val name = t match {
-          case (dtree: DefTree) => Some(dtree.name)
+          // TODO: handle package objects specially by matching PackageDef(ModuleDef) and ignoring
+          // the module
+          case pd: PackageDef => Some(pd.pid.toString)
+          case dtree: DefTree => Some(dtree.name.toString)
           case _ => None
         }
 
         if (name.isDefined && fields.contains("kind")) {
-          if (path.nonEmpty) {
-            fields += path.head._1 -> path.map(_._2).reverse.mkString(".")
-          }
-          t match {
-            // Don't record method local values/variables
-            case ValDef(_,_,_,_)  if path.head._1 == "method" =>
-            case TypeDef(_,_,_,_) if path.head._1 == "method" =>
-            case _ =>
-              // push scope to path
-              scope(t).foreach(s => path.push(s -> name.get.decode))
-              addTag(TagPosition(line, col, text), name.get, fields)
-          }
+          path.push(name.get)
+          addTag(TagPosition(line, col, text), path.reverse.mkString("."), fields)
         }
 
-        t match {
-          case TypeDef(_,_,_,_) =>  // Don't traverse type defs
-          case ValDef(_,_,_,_)  =>  // Don't traverse val defs
-          case _ => super.traverse(t)
-        }
+        super.traverse(t)
 
         if (name.isDefined && fields.contains("kind")) {
-          // pop scope from path
-          scope(t).foreach(_ => path.pop())
+          name.foreach(_ => path.pop())
         }
       }
     }
