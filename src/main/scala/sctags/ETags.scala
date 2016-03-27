@@ -15,11 +15,8 @@ object ETags {
   }
 
   def generate(files: Seq[(String, Seq[Tag])], output: PrintStream) {
-    for ((file, tags) <- files) {
-      val content = formatTags(tags)
-      output.println("\f")
-      output.println(file + "," + content.length)
-      output.print(content)
+    for ((file, tags) <- files; tag <- tags) {
+      output.println(tag.name + "\t" + file + ":" + tag.pos.line)
     }
   }
 }
