@@ -53,7 +53,7 @@ object SCTags extends Parsing with TagGeneration
       val tags = files.map(f => (f.getPath, try {
         generateTags(parse(f))
       } catch {
-        case e: AssertionError =>
+        case e: Throwable =>
           println("Failed to parse %s: %s".format(f.getPath, e))
           Seq.empty
       }))
